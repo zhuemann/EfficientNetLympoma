@@ -1,0 +1,14 @@
+matplotlib
+pandas
+GPUtil
+numpy
+keras
+tensorflow
+sklearn
+keras_radam
+keras-rectified-adam
+natsort
+efficientnet
+opencv-python
+nibabel
+albumentations
