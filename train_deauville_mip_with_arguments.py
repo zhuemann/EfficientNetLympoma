@@ -24,7 +24,6 @@ input:
 '''
 
 import os
-os.chdir('Z:/Lymphoma_UW_Retrospective/Codes/')
 import time
 from glob import glob
 from os.path import join
@@ -36,14 +35,23 @@ import numpy as np
 import tensorflow as tf
 from keras import models
 
+os.environ['TF_KERAS'] = '1'
+import os
+
+
 from tensorflow.python.keras.backend import set_session
 from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+
 #from keras.optimizers import Adam
+
+
 #from natsort import natsorted
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.utils import class_weight
 from keras_radam import RAdam
+from keras.optimizers import adam_v2
+
 
 #from CustomCallbacks import CyclicLR
 
@@ -60,11 +68,6 @@ from Models import (BlockModel2D, BlockModel_Classifier, ConvertEncoderToCED,
 import argparse
 
 ###########################  Functions  ######################################
-DEVICE_ID_LIST = GPUtil.getFirstAvailable()
-DEVICE_ID = DEVICE_ID_LIST[0] # grab first element from list
-os.environ["CUDA_VISIBLE_DEVICES"] = str(DEVICE_ID)
-
-
 
 
 def get_seg_model(model_name, input_dims):
@@ -116,174 +119,184 @@ def str2bool(v):   # for parsing booleans -- which are a pain!
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
-    
-## parse inputs
-parser = argparse.ArgumentParser(description='Model and parameters')
-parser.add_argument('model_name', type=str, help='Model type/name')
-parser.add_argument('model_num', type=str, help='Model save number')
-parser.add_argument('start_new', type=str2bool, nargs='?', const=True, default=True, help='Start from scratch (otherwise load model)?')
-
-args = parser.parse_args()
 
 
-model_name = args.model_name
-model_num = args.model_num
-start_new = args.start_new
-#!!!
-#model_name = 'efficientB0'
-#model_num = '2'
-#start_new = 1
+def train_deauville_mip_with_arguments(model_name = 'efficientb7', model_num = 1):
+    # DEVICE_ID_LIST = GPUtil.getFirstAvailable()
+    # DEVICE_ID = DEVICE_ID_LIST[0] # grab first element from list
+    # os.environ["CUDA_VISIBLE_DEVICES"] = str(DEVICE_ID)
+    os.chdir('Z:/Lymphoma_UW_Retrospective/Codes/')
+    ## parse inputs
 
-config = tf.compat.v1.ConfigProto()
-# dynamically grow the memory used on the GPU
-config.gpu_options.allow_growth = True
-# to log device placement (on which device the operation ran)
-config.log_device_placement = False
-sess = tf.compat.v1.Session(config=config)
-# set this TensorFlow session as the default session for Keras
-set_session(sess)
+    #parser = argparse.ArgumentParser(description='Model and parameters')
+    #parser.add_argument('model_name', type=str, help='Model type/name')
+    #parser.add_argument('model_num', type=str, help='Model save number')
+    #parser.add_argument('start_new', type=str2bool, nargs='?', const=True, default=True, help='Start from scratch (otherwise load model)?')
 
-os.environ['HDF5_USE_FILE_LOCKING'] = 'false'
+    #args = parser.parse_args(args)
 
 
-rng = np.random.RandomState(seed=1)
+    #model_name = args.model_name
+    #model_num = args.model_num
+    #start_new = args.start_new
+    start_new = True
+    #!!!
+    #model_name = 'efficientB0'
+    #model_num = '2'
+    #start_new = 1
+
+    config = tf.compat.v1.ConfigProto()
+    # dynamically grow the memory used on the GPU
+    config.gpu_options.allow_growth = True
+    # to log device placement (on which device the operation ran)
+    config.log_device_placement = False
+    sess = tf.compat.v1.Session(config=config)
+    # set this TensorFlow session as the default session for Keras
+    set_session(sess)
+
+    os.environ['HDF5_USE_FILE_LOCKING'] = 'false'
 
 
-
-# ~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~~~~~ SETUP~~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~
-
-# Setup data
-pos_train_datapath = '/home/tjb129/r-fcb-isilon/research/Bradshaw/Lymphoma_UW_Retrospective/Data/mips/Group_4_5_curated'
-neg_train_datapath = '/home/tjb129/r-fcb-isilon/research/Bradshaw/Lymphoma_UW_Retrospective/Data/mips/Group_1_2_3_curated'
-
-best_model_filepath = 'deauville_mip_{}_v{}.h5'
-
-# train parameters
-im_dims = (768,768)
-n_channels = 1
-batch_size = 4
-
-learnRate = 1e-4
-val_split = .15
-test_split = .15
-epochs = [30, 40]  #each addition loads the previous best model, increases training rate and tries again
+    rng = np.random.RandomState(seed=1)
 
 
 
-# datagen params
-train_params = get_train_params_albumen(batch_size, im_dims, n_channels)
-val_params = get_val_params_albumen(batch_size, im_dims, n_channels)
+    # ~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~~~~~ SETUP~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~~~
+
+    # Setup data
+    pos_train_datapath = 'Z:/Lymphoma_UW_Retrospective/Data/mips/Group_4_5_curated'
+    neg_train_datapath = 'Z:/Lymphoma_UW_Retrospective/Data/mips/Group_1_2_3_curated'
+
+    best_model_filepath = 'deauville_mip_{}_v{}.h5'
+
+    # train parameters
+    im_dims = (768,768)
+    n_channels = 1
+    batch_size = 4
+
+    learnRate = 1e-4
+    val_split = .15
+    test_split = .15
+    epochs = [30, 40]  #each addition loads the previous best model, increases training rate and tries again
 
 
-#I've saved the preprocessed data with clahe, so remove it
-#pre_train_params["preprocessing_function"] = 'None'
-#pre_val_params["preprocessing_function"] = 'None'
-train_params['width_shift_range'] = 0.1
-train_params['height_shift_range'] = 0.1
-train_params['rescale'] = 65535.    #note DEFAULT = 255
-train_params['zoom_range'] = 0.1
-train_params['downscale'] = 0.25
-train_params['gauss_noise'] = 0.005
-train_params['gauss_blur'] = 11
-train_params['elastic_transform'] = True
-train_params['elastic_transform_params'] = (100,10,10)
 
-val_params['rescale'] = 65535.
+    # datagen params
+    train_params = get_train_params_albumen(batch_size, im_dims, n_channels)
+    val_params = get_val_params_albumen(batch_size, im_dims, n_channels)
 
 
+    #I've saved the preprocessed data with clahe, so remove it
+    #pre_train_params["preprocessing_function"] = 'None'
+    #pre_val_params["preprocessing_function"] = 'None'
+    train_params['width_shift_range'] = 0.1
+    train_params['height_shift_range'] = 0.1
+    train_params['rescale'] = 65535.    #note DEFAULT = 255
+    train_params['zoom_range'] = 0.1
+    train_params['downscale'] = 0.25
+    train_params['gauss_noise'] = 0.005
+    train_params['gauss_blur'] = 11
+    train_params['elastic_transform'] = False #was true
+    train_params['elastic_transform_params'] = (100,10,10)
+
+    val_params['rescale'] = 65535.
 
 
-# %% ~~~~~~~~~~~~~~~~~~~~~~~
-# ~~~~Classification_trainer~~~~~~
-# ~~~~~~~~~~~~~~~~~~~~~~~
-
-# Get datagens for pre-training
-train_gen, val_gen, class_weights = get_class_datagen_albumen(
-    pos_train_datapath, neg_train_datapath, train_params, val_params, val_split)
-
-[test_im, test_lab] = train_gen.__getitem__(1)
-print('---\n---Max value of test image is ' + str(np.max(test_im)) )
-print('---Label of test image is ' + str(test_lab[0]) + '\n---')
-plt.imshow(test_im[0,:,:,0])
-plt.pause(3)
-plt.close()
 
 
-if start_new:
-    # Create model
-    model = get_classifier_model(model_name, im_dims+(n_channels,))
-        
-    # Compile model
-    model.compile(RAdam(), loss='binary_crossentropy', metrics=['accuracy'])
-else:
-    print('\nLoading model ' + best_model_filepath.format(model_name, model_num) + '\n')
-    model = models.load_model(best_model_filepath.format(model_name, model_num), custom_objects={'RAdam': RAdam})
-    
-# Create callbacks
-cb_check = ModelCheckpoint(best_model_filepath.format(model_name, model_num), monitor='val_loss',
-                           verbose=1, save_best_only=True, save_weights_only=False, mode='auto', period=1)
-#cb_plateau = ReduceLROnPlateau(monitor='val_loss', factor=.2, patience=5, verbose=1)
+    # %% ~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~Classification_trainer~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~~~~
 
-print('---------------------------------')
-print('----- Starting training -----')
-print('---------------------------------')
+    # Get datagens for pre-training
+    train_gen, val_gen, class_weights = get_class_datagen_albumen(
+        pos_train_datapath, neg_train_datapath, train_params, val_params, val_split)
 
-for i, epochs_i in enumerate(epochs):
-    print('Training round ' + str(i))
-        
-    # Train model
-    history = model.fit_generator(generator=train_gen,
-                                          epochs=epochs_i, verbose=1,
-                                          callbacks=[cb_check], #callbacks=[cb_check, cb_plateau],
-                                          class_weight=class_weights,
-                                          validation_data=val_gen)
-    # Plot training & validation accuracy values
-    plt.figure()
-    plt.plot(history.history['acc'])
-    plt.plot(history.history['val_acc'])
-    plt.title('Model accuracy')
-    plt.ylabel('Accuracy')
-    plt.xlabel('Epoch')
-    plt.legend(['Train', 'Test'], loc='upper left')
-    plt.show()
-    #load best one before starting again
-    model = models.load_model(best_model_filepath.format(model_name, model_num), custom_objects={'RAdam': RAdam})
-    
-    
-# Load best weights
-#model = models.load_model(best_model_filepath.format(model_name, model_num))
+    [test_im, test_lab] = train_gen.__getitem__(1)
+    print('---\n---Max value of test image is ' + str(np.max(test_im)) )
+    print('---Label of test image is ' + str(test_lab[0]) + '\n---')
+    plt.imshow(test_im[0,:,:,0])
+    plt.pause(3)
+    plt.close()
 
-# Calculate confusion matrix
-print('Calculating classification confusion matrix...')
-val_gen.shuffle = False
-preds = model.predict_generator(val_gen, verbose=1)
-labels = [val_gen.labels[f] for f in val_gen.list_IDs]
-y_pred = np.rint(preds)
-totalNum = len(y_pred)
-y_true = np.rint(labels)[:totalNum]
-tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
 
-print('----------------------')
-print('Classification Results')
-print('----------------------')
-print('True positives: {}'.format(tp))
-print('True negatives: {}'.format(tn))
-print('False positives: {}'.format(fp))
-print('False negatives: {}'.format(fn))
-print('% Positive: {:.02f}'.format(100*(tp+fp)/totalNum))
-print('% Negative: {:.02f}'.format(100*(tn+fn)/totalNum))
-print('% Accuracy: {:.02f}'.format(100*(tp+tn)/totalNum))
-print('-----------------------')
+    if start_new:
+        # Create model
+        model = get_classifier_model(model_name, im_dims+(n_channels,))
 
-thresh = 0.3
-y2 = np.copy(preds)
-s = preds <= thresh
-s2 = preds > thresh
-y2[s] = 0
-y2[s2] = 1
-y_pred = np.rint(y2)
+        # Compile model
+        # model.compile(RAdam(), loss='binary_crossentropy', metrics=['accuracy'])
+        opt = tf.keras.optimizers.Adam(learning_rate=0.1)
+        model.compile(opt, loss='binary_crossentropy', metrics=['accuracy'])
+    else:
+        print('\nLoading model ' + best_model_filepath.format(model_name, model_num) + '\n')
+        model = models.load_model(best_model_filepath.format(model_name, model_num), custom_objects={'RAdam': RAdam})
+
+    # Create callbacks
+    cb_check = ModelCheckpoint(best_model_filepath.format(model_name, model_num), monitor='val_loss',
+                               verbose=1, save_best_only=True, save_weights_only=False, mode='auto', period=1)
+    #cb_plateau = ReduceLROnPlateau(monitor='val_loss', factor=.2, patience=5, verbose=1)
+
+    print('---------------------------------')
+    print('----- Starting training -----')
+    print('---------------------------------')
+
+    for i, epochs_i in enumerate(epochs):
+        print('Training round ' + str(i))
+
+        # Train model
+        history = model.fit_generator(generator=train_gen,
+                                              epochs=epochs_i, verbose=1,
+                                              callbacks=[cb_check], #callbacks=[cb_check, cb_plateau],
+                                              class_weight=class_weights,
+                                              validation_data=val_gen)
+        # Plot training & validation accuracy values
+        plt.figure()
+        plt.plot(history.history['acc'])
+        plt.plot(history.history['val_acc'])
+        plt.title('Model accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend(['Train', 'Test'], loc='upper left')
+        plt.show()
+        #load best one before starting again
+        model = models.load_model(best_model_filepath.format(model_name, model_num), custom_objects={'RAdam': RAdam})
+
+
+    # Load best weights
+    #model = models.load_model(best_model_filepath.format(model_name, model_num))
+
+    # Calculate confusion matrix
+    print('Calculating classification confusion matrix...')
+    val_gen.shuffle = False
+    preds = model.predict_generator(val_gen, verbose=1)
+    labels = [val_gen.labels[f] for f in val_gen.list_IDs]
+    y_pred = np.rint(preds)
+    totalNum = len(y_pred)
+    y_true = np.rint(labels)[:totalNum]
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
+
+    print('----------------------')
+    print('Classification Results')
+    print('----------------------')
+    print('True positives: {}'.format(tp))
+    print('True negatives: {}'.format(tn))
+    print('False positives: {}'.format(fp))
+    print('False negatives: {}'.format(fn))
+    print('% Positive: {:.02f}'.format(100*(tp+fp)/totalNum))
+    print('% Negative: {:.02f}'.format(100*(tn+fn)/totalNum))
+    print('% Accuracy: {:.02f}'.format(100*(tp+tn)/totalNum))
+    print('-----------------------')
+
+    thresh = 0.3
+    y2 = np.copy(preds)
+    s = preds <= thresh
+    s2 = preds > thresh
+    y2[s] = 0
+    y2[s2] = 1
+    y_pred = np.rint(y2)
 
 
 #    else:

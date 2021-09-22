@@ -6,9 +6,18 @@ from PIL import Image
 from skimage.exposure import equalize_adapthist
 import nibabel as nib
 import keras
-
+from albumentations import (
+    HorizontalFlip, IAAPerspective, ShiftScaleRotate, CLAHE, RandomRotate90,
+    Transpose, ShiftScaleRotate, Blur, OpticalDistortion, GridDistortion, HueSaturationValue,
+    IAAAdditiveGaussianNoise, GaussNoise, MotionBlur, MedianBlur, IAAPiecewiseAffine,
+    IAASharpen, IAAEmboss, RandomContrast, RandomBrightness, Flip, OneOf, Compose, ElasticTransform
+)
+from albumentations.augmentations import (
+    ShiftScaleRotate
+)
 #pip install -U git+https://github.com/albu/albumentations
 from albumentations.augmentations import transforms
+import albumentations.augmentations
 
 try:
     import scipy
@@ -253,13 +262,15 @@ class PngDataGenerator_albumen(tensorflow.keras.utils.Sequence):   #!! version p
             
                
         if self.elastic_transform:
-            aug = transforms.ElasticTransform(alpha=self.elastic_transform_params[0], sigma=self.elastic_transform_params[1], alpha_affine=self.elastic_transform_params[2], interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, value=0, mask_value=None, always_apply=False, p=prob_to_appy, approximate=False)
+            #aug = transforms.ElasticTransform(alpha=self.elastic_transform_params[0], sigma=self.elastic_transform_params[1], alpha_affine=self.elastic_transform_params[2], interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, value=0, mask_value=None, always_apply=False, p=prob_to_appy, approximate=False)
+            aug = ElasticTransform(alpha=self.elastic_transform_params[0], sigma=self.elastic_transform_params[1], alpha_affine=self.elastic_transform_params[2], interpolation=cv2.INTER_LINEAR, border_mode=cv2.BORDER_CONSTANT, value=0, mask_value=None, always_apply=False, p=prob_to_appy, approximate=False)
+
             augmented = aug(image=x)
-            x = augmented['image']  
+            x = augmented['image']
             
             
         if self.rotation_range or self.width_shift_range or self.height_shift_range or self.zoom_range:
-            aug = transforms.ShiftScaleRotate(shift_limit=(-self.width_shift_range,self.height_shift_range), scale_limit=(-self.zoom_range,self.zoom_range), rotate_limit=(-self.rotation_range,self.rotation_range), interpolation=1, border_mode=cv2.BORDER_CONSTANT, value=0, always_apply=False, p=prob_to_appy)
+            aug = ShiftScaleRotate(shift_limit=(-self.width_shift_range,self.height_shift_range), scale_limit=(-self.zoom_range,self.zoom_range), rotate_limit=(-self.rotation_range,self.rotation_range), interpolation=1, border_mode=cv2.BORDER_CONSTANT, value=0, always_apply=False, p=prob_to_appy)
             augmented = aug(image=x)
             x = augmented['image']
     
